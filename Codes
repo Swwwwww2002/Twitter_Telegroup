@@ -1,0 +1,81 @@
+import time
+import telebot
+import feedparser
+from bs4 import BeautifulSoup
+
+# Initialize bot with your token
+bot_token = 'Token'
+bot = telebot.TeleBot(bot_token)
+
+# Telegram user ID or group ID to send messages to
+chat_id = '-123456789'  # Replace with your user ID or group ID
+
+# Dictionary to store latest entry ID for each Twitter account
+latest_entry_ids = {}
+
+# Function to send message to user or group
+def send_message(link, description, retweeter=None):
+    # Extract relevant information from the entry
+    username = link.split('/')[3]
+
+    # Parse the description to extract the text content
+    soup = BeautifulSoup(description, 'html.parser')
+    for br in soup.find_all("br"):
+        br.replace_with("\n")
+    description_text = soup.text
+
+    # Format the message with retweeter's username if available
+    if retweeter:
+        message = f"{retweeter} has retweeted {username}:\n\n{description_text}\n\nLink: {link}"
+    else:
+        message = f"{username} has posted:\n\n{description_text}\n\nLink: {link}"
+
+    # Send the message
+    bot.send_message(chat_id, message)
+
+# Function to parse feed
+def parse_feed(url, username):
+    feed = feedparser.parse(url)
+
+    if not feed.entries:
+        # If no entries are found, print a message and return
+        print(f"No entries found for {username}.")
+        return
+
+    if username not in latest_entry_ids:
+        # If this is a new account, store the ID of the first entry
+        latest_entry_ids[username] = feed.entries[0].id
+        for entry in feed.entries:
+            if 'retweeted_status' in entry:
+                retweeter = entry.author
+                retweet_description = entry.retweeted_status.description
+                retweet_link = entry.retweeted_status.link
+                send_message(retweet_link, retweet_description, retweeter)
+            else:
+                send_message(entry.link, entry.description)
+    else:
+        # If this account has been parsed before, only process new entries
+        for entry in feed.entries:
+            if entry.id > latest_entry_ids[username]:
+                latest_entry_ids[username] = entry.id
+
+                if 'retweeted_status' in entry:
+                    retweeter = entry.author
+                    retweet_description = entry.retweeted_status.description
+                    retweet_link = entry.retweeted_status.link
+                    send_message(retweet_link, retweet_description, retweeter)
+                else:
+                    send_message(entry.link, entry.description)
+
+# Dictionary of Twitter usernames and their corresponding RSS feed URLs
+twitter_accounts = {
+    'elonmusk': 'https://rsshub.app/twitter/user/elonmusk',
+    # Add more accounts here
+}
+
+# Main loop to parse each feed every 5 minutes
+while True:
+    for username, url in twitter_accounts.items():
+        parse_feed(url, username)
+    time.sleep(300)  # Wait for 5 minutes
+
